@@ -12,3 +12,9 @@ class Distribution(ABC):
     @abstractmethod
     def sample(self):
         pass
+
+
+# Abstract classes are a "template"
+# One cannot create an instant of this class
+# Now let us define a class for a "concrete" class that implements an interface
+# in another file Die.py
