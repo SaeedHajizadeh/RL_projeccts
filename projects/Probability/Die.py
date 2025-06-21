@@ -1,3 +1,7 @@
+from typing import Optional, Mapping
+
+from numpy.random import binomial
+
 from Distribution import Distribution
 import random
 from dataclasses import dataclass
@@ -271,6 +275,7 @@ def roll_dice():
 
 
 
+
 if __name__ == "__main__":
     print(f'Rolling a {six_sided.__repr__()}-sided and a '
           f'{fifteen_sided.__repr__()}-side die and adding them: {roll_dice()}')
@@ -281,3 +286,232 @@ if __name__ == "__main__":
 
 
 
+import numpy as np
+from dataclasses import dataclass
+import itertools
+from numpy.random import binomial
+
+@dataclass
+class Process1:
+
+    @dataclass
+    class State:
+        price: int
+
+    level_param: int
+    alpha1: float = 0.25
+
+    def up_prob(self , state: State):
+        return 1 / (1 + np.exp(-self.alpha1 * (self.level_param - state.price)))
+
+    def next_state(self , state: State) -> State:
+        up_move: int = binomial(1 , self.up_prob(state) , 1)[0]
+        return Process1.State(price = state.price + up_move * 2 - 1)
+
+def simulation(process , start_state):
+    state = start_state
+    while True:
+        yield state
+        state = process.next_state(state)
+
+def process1_price_traces(
+        start_price: int,
+        level_param: int,
+        alpha1: float,
+        time_steps: int,
+        num_traces: int
+) -> np.ndarray:
+    process = Process1(level_param = level_param , alpha1 = alpha1)
+    start_state = process.State(price = start_price)
+    return np.vstack([np.fromiter((s.price for s in itertools.islice(simulation(process , start_state) , time_steps + 1)) , float) for _ in range(num_traces)])
+
+
+# Plotting these
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Fix for non-interactive environments
+plt.ioff()  # Turn off interactive mode
+
+# Generate your price traces (using your existing function)
+price_traces = process1_price_traces(
+    start_price=100,
+    level_param=100,
+    alpha1=0.25,
+    time_steps=50,
+    num_traces=10
+)
+
+# Create time axis
+time_steps = price_traces.shape[1] - 1  # -1 because we include t=0
+time_axis = np.arange(time_steps + 1)
+
+# Basic plot - all traces
+plt.figure(figsize=(12, 8))
+for i in range(price_traces.shape[0]):
+    plt.plot(time_axis, price_traces[i, :], alpha=0.7, linewidth=1)
+
+plt.title('Stock Price Simulation - Multiple Paths')
+plt.xlabel('Time Steps')
+plt.ylabel('Price')
+plt.grid(True, alpha=0.3)
+plt.savefig('price_traces_basic.png', dpi=150, bbox_inches='tight')
+plt.close()  # Close to free memory
+
+# Alternative: Plot with different styling
+plt.figure(figsize=(12, 8))
+
+# Plot all traces in light gray
+for i in range(price_traces.shape[0]):
+    plt.plot(time_axis, price_traces[i, :], color='lightgray', alpha=0.6, linewidth=0.8)
+
+# Highlight the mean path
+mean_path = np.mean(price_traces, axis=0)
+plt.plot(time_axis, mean_path, color='red', linewidth=2, label='Average Path')
+
+# Add level parameter line (mean-reversion level)
+plt.axhline(y=100, color='blue', linestyle='--', linewidth=1, label='Mean-Reversion Level')
+
+plt.title('Stock Price Simulation with Mean Path')
+plt.xlabel('Time Steps')
+plt.ylabel('Price')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.savefig('price_traces_mean.png', dpi=150, bbox_inches='tight')
+plt.close()
+
+# Even fancier: Plot with confidence bands
+plt.figure(figsize=(12, 8))
+
+# Calculate percentiles for confidence bands
+p5 = np.percentile(price_traces, 5, axis=0)
+p25 = np.percentile(price_traces, 25, axis=0)
+p75 = np.percentile(price_traces, 75, axis=0)
+p95 = np.percentile(price_traces, 95, axis=0)
+
+# Fill between percentiles
+plt.fill_between(time_axis, p5, p95, alpha=0.2, color='blue', label='90% Range')
+plt.fill_between(time_axis, p25, p75, alpha=0.3, color='blue', label='50% Range')
+
+# Plot mean
+plt.plot(time_axis, mean_path, color='red', linewidth=2, label='Mean Path')
+
+# Plot a few individual traces
+for i in range(min(5, price_traces.shape[0])):
+    plt.plot(time_axis, price_traces[i, :], alpha=0.4, linewidth=1)
+
+plt.axhline(y=100, color='green', linestyle='--', linewidth=1, label='Mean-Reversion Level')
+
+plt.title('Stock Price Simulation with Confidence Bands')
+plt.xlabel('Time Steps')
+plt.ylabel('Price')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.savefig('price_traces_confidence.png', dpi=150, bbox_inches='tight')
+plt.close()
+
+
+
+handy_map: Mapping[Optional[bool], int] = {True: 1, False: -1, None: 0}
+
+# Process 2
+@dataclass
+class Process2:
+
+    @dataclass
+    class State:
+        price: int
+        is_prev_move_up: Optional[bool]
+
+    alpha2: float = 0.75
+
+    # We need up_move and next_state
+    def up_move(self , state: State) -> int:
+        is_prev_move_up: int = handy_map[state.is_prev_move_up]
+        up_prob: float = 0.5 * (1 - self.alpha2 * is_prev_move_up)
+        return binomial(1 , up_prob , 1)[0]
+
+    def next_state(self , state: State) -> State:
+        next_move_up = self.up_move(state)
+        return Process2.State(price = state.price + 2 * next_move_up - 1 , is_prev_move_up = (next_move_up == 1))
+
+
+def process2_price_traces(
+        start_price: int,
+        num_traces: int,
+        time_steps: int,
+        alpha2: float
+) -> np.ndarray:
+    process = Process2(alpha2 = alpha2)
+    start_state = process.State(price = start_price , is_prev_move_up = None)
+    return np.vstack([(np.fromiter(s.price for s in itertools.islice(simulation(process , start_state)
+                                                                     , time_steps + 1 )) , float)
+                      for _ in range(num_traces)])
+
+
+# Let us now design proccess 3
+@dataclass
+class Process3:
+    alpha3: float = 1.0
+    @dataclass
+    class State:
+        num_of_up_moves: int
+        num_of_down_moves: int
+
+    def up_prob(self , state: State) -> float:
+        if state.num_of_up_moves == 0 and state.num_of_up_moves == 0:
+            return 0.5
+        return 1/(1 + (state.num_of_up_moves/state.num_of_down_moves) ** self.alpha3)
+
+    def next_state(self , state: State) -> State:
+        up_move: int = binomial(1 , self.up_prob(state) , 1)[0]
+        return Process3.State(num_of_up_moves = state.num_of_up_moves + up_move ,
+                              num_of_down_moves = state.num_of_down_moves - up_move + 1
+                              )
+
+def process3_price_traces(
+        num_traces: int,
+        time_steps: int,
+        alpha3: float,
+        start_price: int
+) -> np.ndarray:
+    process = Process3(alpha3 = alpha3)
+    start_state = process.State(0 , 0)
+    return np.vstack(
+        [
+            np.fromiter(
+                (
+                    start_price + s.num_of_up_moves - s.num_of_down_moves for s in
+                    itertools.islice(simulation(process, start_state), time_steps + 1
+                )
+            ), float) for _ in range(num_traces)
+        ]
+    )
+
+
+
+
+# @dataclass
+# class Process1:
+#
+#     @dataclass
+#     class State:
+#         price: int
+#
+#     level_parameter: int
+#     alpha1: float = 0.25
+#
+#
+#     def up_prob(self , state: State):
+#         return 1/(1 + np.exp(-self.alpha1 * (self.level_parameter - state.price)))
+#
+#     def next_state(self , state: State) -> State:
+#         up_move: int = binomial(1 , self.up_prob(state) , 1)[0]
+#         return Process1.State(price = state.price + up_move * 2 - 1)
+#
+#
+# def simulation(process , init_stat):
+#     state = init_stat
+#     while True:
+#         yield state
+#         state = process.next_state(state)
